@@ -1,0 +1,11 @@
+int32 TF
+float32 Des_X_y
+float32 Des_X_z
+float32 Des_XDot_y
+float32 Des_XDot_z
+float32 Des_XDDot_y
+float32 Des_XDDot_z
+float32 Kp0
+float32 Kp1
+float32 Kv0
+float32 Kv1

@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<sdf version="1.6">
+  <world name="planar_robot_pkgs">
+    <physics name="default_physics" default="0" type="ode">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1</real_time_factor>
+      <real_time_update_rate>1000</real_time_update_rate>
+      <ode>
+	<solver>
+	  <type>quick</type>
+	  <iters>100</iters>
+	  <sor>1.0</sor>
+	  <use_dynamic_moi_rescaling>false</use_dynamic_moi_rescaling>
+	</solver>
+      </ode>
+    </physics>
+
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <include>
+      <uri>model://planar_robot</uri>
+	<pose frame="">0 0 1.5 0 0 0</pose> <!-- 1.5=공중, 0.8=지면-->
+      <plugin name="plugin" filename="libplanar_robot_pkgs.so"/>
+    </include>
+
+  </world>
+</sdf>
