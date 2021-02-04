@@ -206,6 +206,11 @@ namespace gazebo
     VectorXd FK(VectorXd joint_pos_HS);
     VectorXd IK(VectorXd EP_pos);
 
+    FILE* tmpdata0=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata0.txt","w");
+    FILE* tmpdata1=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata1.txt","w");
+    FILE* tmpdata2=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata2.txt","w");
+    FILE* tmpdata3=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata3.txt","w");
+
     void Print(void); //Print function
 
   };
@@ -296,14 +301,14 @@ void gazebo::PLANAR_ROBOT_plugin::UpdateAlgorithm() // 여러번 실행되는 �
   dt = current_time.Double() - this->last_update_time.Double();
 
   f_cnt++;
-  if(f_cnt >= 1)
+  if(f_cnt >= 5)
   {
     EncoderRead(); //FK 푸는것도 포함.
   }
 
   PostureGeneration(); // PostureGeneration 하위에 Trajectory 하위에 IK푸는것 포함.
 
-  if(f_cnt >= 1)
+  if(f_cnt >= 5)
   {
     jointController();
     ROSMsgPublish();
@@ -343,6 +348,7 @@ void gazebo::PLANAR_ROBOT_plugin::InitROSPubSetting()
   P_ros_msg = n.advertise<std_msgs::Float64MultiArray>("TmpData", 50); // topicname, queue_size = 50
   m_ros_msg.data.resize(50);
   server_sub1 = n.subscribe("Ctrl_mode", 1, &gazebo::PLANAR_ROBOT_plugin::Callback1, this);
+  server_sub2 = n.subscribe("Planar_CTC_msg", 100, &gazebo::PLANAR_ROBOT_plugin::msgCallback, this);
 }
 
 void gazebo::PLANAR_ROBOT_plugin::EncoderRead()
@@ -465,8 +471,8 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_CTC_Torque_()
   double c1, c12, s1 ,s12;
   c1 = cos(th[0]); c12 = cos(th[0]+th[1]); s1 = sin(th[0]); s12 = sin(th[0]+th[1]);
 
-  Kp << 1000, 1000;
-  Kv << 50, 50;
+  Kp << 50000, 50000;
+  Kv << 100, 100;
 
   MatrixNd J_0, J_1;
   J_0 = MatrixNd::Zero(3,2);  J_0(0,0) = Lc0*c1; J_0(1,0) = Lc0*s1;
@@ -507,9 +513,6 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_CTC_Torque_()
   NE_Tau(1) = M1*L0*Lc1*QDot_(0)*QDot_(0)*sin(th[1]) - M1*g*Lc1*sin(th[0]+th[1]);
 
   torque_CTC = I_Matrix * q_CTC + NE_Tau;
-
-  cout << "===================" << endl;
-  cout << torque_CTC << endl << endl;
 }
 
 void gazebo::PLANAR_ROBOT_plugin::Calc_Feedback_Pos()
@@ -560,7 +563,7 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_CTC_Torque()
 
   if(start_flag == 0)
   {
-    Kp << 1000, 1000;
+    Kp << 5000, 5000;
     Kv << 50, 50;
   }
 
@@ -598,8 +601,6 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_CTC_Torque()
   }
 
   torque_CTC = I_Matrix * q_CTC + NE_Tau;
-
-  cout << torque_CTC << endl << endl;
 }
 
 void gazebo::PLANAR_ROBOT_plugin::PostureGeneration()
@@ -635,7 +636,7 @@ void gazebo::PLANAR_ROBOT_plugin::PostureGeneration()
 
 void gazebo::PLANAR_ROBOT_plugin::Init_Pos_Traj()
 {
-  Kp_q << 500, 500;
+  Kp_q << 50, 50;
   Kd_q << 5, 5;
 
   step_time = 2; //주기설정 (초) 변수
@@ -764,7 +765,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Pos()
   // Target Pos, Pos Dot, Pos DDot
   if(start_flag == 0)
   {
-    Des_X(0) = 0.1;  Des_X(1) = 0.1;
+    Des_X(0) = 0;  Des_X(1) = -0.43;
     Des_XDot(0) = 0;  Des_XDot(1) = 0;
     Des_XDDot(0) = 0;  Des_XDDot(1) = 0;
 
@@ -832,7 +833,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
   // Target Pos, Pos Dot, Pos DDot
   if(start_flag == 0)
   {
-    Des_X(0) = 0.1;  Des_X(1) = 0.1;
+    Des_X(0) = 0;  Des_X(1) = -0.43;
     Des_XDot(0) = 0;  Des_XDot(1) = 0;
     Des_XDDot(0) = 0;  Des_XDDot(1) = 0;
 
@@ -845,7 +846,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
     chg_cnt++;
     double change_trajectory = 0.5*(1-cos(PI*(chg_cnt_time/chg_step_time)));
     
-    New_Des_X << 0, 0.07;
+    New_Des_X << 0, -0.47;
     New_Des_XDot << 0, 0;
     New_Des_XDDot << 0, 0;
 
@@ -870,7 +871,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
     chg_cnt++;
     double change_trajectory = 0.5*(1-cos(PI*(chg_cnt_time/chg_step_time)));
     
-    New_Des_X << 0, 0.07;
+    New_Des_X << 0, -0.35;
     New_Des_XDot << 0, 0;
     New_Des_XDDot << 0, 0;
     
@@ -884,13 +885,13 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
     {
       Des_X = New_Des_X; Des_XDot = New_Des_XDot; Des_XDDot = New_Des_XDDot;
       Old_Des_X = Des_X; Old_Des_XDot = Des_XDot; Old_Des_XDDot = Des_XDDot;
-      start_flag = 2;
+      start_flag = 1;
       chg_cnt = 0;
     }
   }
 
-  Calc_Feedback_Pos();  // calculate the feedback
-  Calc_CTC_Torque();    // calculate the CTC torque
+  Calc_Feedback_Pos_();  // calculate the feedback
+  Calc_CTC_Torque_();    // calculate the CTC torque
 
   if(cnt_time <= step_time)
   {
@@ -911,7 +912,13 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
 
 void gazebo::PLANAR_ROBOT_plugin::Print() // 한 싸이클 돌때마다 데이터 플로팅
 {
-
+  if (CONTROL_MODE == CTC_CONTROL_CONT_POS) 
+  {
+    fprintf(tmpdata0, "%f,%f\n", Des_X(0),Des_X(1));
+    fprintf(tmpdata1, "%f,%f\n", Foot_Pos(0),Foot_Pos(1));
+    fprintf(tmpdata2, "%f,%f\n", torque_CTC(0),torque_CTC(1));
+    fprintf(tmpdata3, "%f,%f\n", joint[0].torque, joint[1].torque);
+  }
 }
 
 void gazebo::PLANAR_ROBOT_plugin::ROSMsgPublish()
