@@ -11,6 +11,8 @@ find_package(catkin REQUIRED COMPONENTS
 )
 
 add_message_files(FILES Planar_CTCMsg.msg)
+add_message_files(FILES Pub_torque_calc_Msg.msg)
+add_message_files(FILES Pub_torque_calc_Msg2.msg)
 
 generate_messages(DEPENDENCIES std_msgs)
 
@@ -21,6 +23,9 @@ include_directories(${Boost_INCLUDE_DIR} ${catkin_INCLUDE_DIRS} ${GAZEBO_INCLUDE
 add_library(${PROJECT_NAME} src/plugin.cc src/Constraints.cc src/Dynamics.cc src/Joint.cc src/Kinematics.cc src/Logging.cc src/Model.cc src/rbdl_mathutils.cc src/rbdl_utils.cc src/rbdl_version.cc)
 target_link_libraries(${PROJECT_NAME} ${catkin_LIBRARIES} ${GAZEBO_LIBRARIES} ${RBDL_LIBRARY})
 
+add_executable(torque_calc src/torque_calc.cc src/Constraints.cc src/Dynamics.cc src/Joint.cc src/Kinematics.cc src/Logging.cc src/Model.cc src/rbdl_mathutils.cc src/rbdl_utils.cc src/rbdl_version.cc)
+add_dependencies(torque_calc ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(torque_calc ${catkin_LIBRARIES} ${RBDL_LIBRARY})
 
 include_directories(
   include
