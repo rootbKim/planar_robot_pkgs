@@ -50,6 +50,7 @@ typedef struct Joint_torque
 #define I0  0.027083
 #define I1  0.027083
 #define g  -9.81
+#define inner_dt 0.004
 
 // ***************행렬 선언*********************//
 double Theo_th[2] = {0, };
@@ -167,6 +168,8 @@ namespace gazebo
     // ************* Structure variables ****************//
     JOINT* joint;
     JOINT* old_joint;
+    JOINT* prev_out_joint;
+    JOINT* out_joint;
 
     enum ControlMode
     {
@@ -187,6 +190,7 @@ namespace gazebo
     void GetJoints();
     void InitROSPubSetting();
     void EncoderRead();
+    void torque_interpolation();
     void jointController();
     void ROSMsgPublish();
     void Callback1(const std_msgs::Int32Ptr &msg);
@@ -210,6 +214,7 @@ namespace gazebo
     FILE* tmpdata1=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata1.txt","w");
     FILE* tmpdata2=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata2.txt","w");
     FILE* tmpdata3=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata3.txt","w");
+    FILE* tmpdata4=fopen("/home/jiyong/catkin_ws/src/planar_robot_pkgs/MATLAB/tmpdata4.txt","w");
 
     void Print(void); //Print function
 
@@ -228,6 +233,18 @@ void gazebo::PLANAR_ROBOT_plugin::Load(physics::ModelPtr _model, sdf::ElementPtr
   
   joint = new JOINT[2];
   old_joint = new JOINT[2];
+
+  prev_out_joint = new JOINT[2];
+  out_joint = new JOINT[2];
+
+  for(int i = 0; i < 2; i++)
+  {
+    joint[i].torque = 0;
+    old_joint[i].torque = 0;
+    prev_out_joint[i].torque = 0;
+    out_joint[i].torque = 0;
+  }
+
   CONTROL_MODE = IDLE;
 
   this->last_update_time = this->model->GetWorld()->GetSimTime();
@@ -240,8 +257,8 @@ void gazebo::PLANAR_ROBOT_plugin::RBDL_INIT()
   //********************RBDL********************//
   rbdl_check_api_version(RBDL_API_VERSION);//check the rdbl version
 
-  Kp = VectorNd::Zero(6);
-  Kv = VectorNd::Zero(6);
+  Kp = VectorNd::Zero(2);
+  Kv = VectorNd::Zero(2);
 
   //RBDL_MODEL
   rbdl_model = new Model();//declare Model
@@ -299,25 +316,29 @@ void gazebo::PLANAR_ROBOT_plugin::UpdateAlgorithm() // 여러번 실행되는 �
   //************************** Time ********************************//
   current_time = this->model->GetWorld()->GetSimTime();
   dt = current_time.Double() - this->last_update_time.Double();
-
+  
   f_cnt++;
-  if(f_cnt >= 5)
+  if(f_cnt >= 4)
   {
+    for(int i = 0; i < 2; i++)
+    {
+      prev_out_joint[i].torque = joint[i].torque;
+    }
+
     EncoderRead(); //FK 푸는것도 포함.
-  }
+    PostureGeneration(); // PostureGeneration 하위에 Trajectory 하위에 IK푸는것 포함.
 
-  PostureGeneration(); // PostureGeneration 하위에 Trajectory 하위에 IK푸는것 포함.
-
-  if(f_cnt >= 5)
-  {
-    jointController();
-    ROSMsgPublish();
-    Print();
     f_cnt = 0;
   }
 
-  this->last_update_time = current_time;
+  torque_interpolation();
 
+  jointController();
+
+  ROSMsgPublish();
+  Print();
+
+  this->last_update_time = current_time;
 }
 
 void gazebo::PLANAR_ROBOT_plugin::GetLinks() 
@@ -363,24 +384,56 @@ void gazebo::PLANAR_ROBOT_plugin::EncoderRead()
   }
 }
 
+void gazebo::PLANAR_ROBOT_plugin::torque_interpolation()
+{
+  if(f_cnt == 0)
+  {
+    for(int i = 0 ; i < 2 ; i++)
+    {
+      out_joint[i].torque = prev_out_joint[i].torque;
+    }
+  }
+  else if(f_cnt == 1)
+  {
+    for(int i = 0 ; i < 2 ; i++)
+    {
+      out_joint[i].torque = prev_out_joint[i].torque + (joint[i].torque - prev_out_joint[i].torque) * 0.25;
+    }
+  }
+  else if(f_cnt == 2)
+  {
+    for(int i = 0 ; i < 2 ; i++)
+    {
+      out_joint[i].torque = prev_out_joint[i].torque + (joint[i].torque - prev_out_joint[i].torque) * 0.5;
+    }
+  }
+  else if(f_cnt == 3)
+  {
+    for(int i = 0 ; i < 2 ; i++)
+    {
+      out_joint[i].torque = prev_out_joint[i].torque + (joint[i].torque - prev_out_joint[i].torque) * 0.75;
+    }
+  }
+}
+
 void gazebo::PLANAR_ROBOT_plugin::jointController()
 {
   //* Torque Limit 감속기 정격토크참조함.
   for (unsigned int i = 0; i < 2; ++i)
   {
-    if (joint[i].torque >= 8560*3)
+    if (out_joint[i].torque >= 8560*3)
     {
-      joint[i].torque = 8560*3;
+      out_joint[i].torque = 8560*3;
     }
-    else if (joint[i].torque <= -8560*3)
+    else if (out_joint[i].torque <= -8560*3)
     {
-      joint[i].torque = -8560*3;
+      out_joint[i].torque = -8560*3;
     }
   }
 
   //* Applying torques
-  this->UPPER_BODY_JOINT->SetForce(0, joint[0].torque); //SUBO3.target_tor[0]);
-  this->LOWER_BODY_JOINT->SetForce(0, joint[1].torque); //SUBO3.target_tor[1]);
+  this->UPPER_BODY_JOINT->SetForce(0, out_joint[0].torque); //SUBO3.target_tor[0]);
+  this->LOWER_BODY_JOINT->SetForce(0, out_joint[1].torque); //SUBO3.target_tor[1]);
 }
 
 void gazebo::PLANAR_ROBOT_plugin::Callback1(const std_msgs::Int32Ptr &msg)
@@ -453,10 +506,10 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_Feedback_Pos_()
   {
     for(int j = 0 ; j< 2; j++)
     {
-      Jacobian_dot(i,j) = (Jacobian(i,j) - prev_Jacobian(i,j)) / dt;
+      Jacobian_dot(i,j) = (Jacobian(i,j) - prev_Jacobian(i,j)) / inner_dt;
       prev_Jacobian(i,j) = Jacobian(i,j);
     }
-    QDot_(i) = (th[i] - prev_th[i]) / dt;
+    QDot_(i) = (th[i] - prev_th[i]) / inner_dt;
     prev_th[i] = th[i];
   }
 
@@ -471,8 +524,11 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_CTC_Torque_()
   double c1, c12, s1 ,s12;
   c1 = cos(th[0]); c12 = cos(th[0]+th[1]); s1 = sin(th[0]); s12 = sin(th[0]+th[1]);
 
-  Kp << 50000, 50000;
-  Kv << 100, 100;
+  if(start_flag == 0)
+  {
+    Kp << 3000, 3000;
+    Kv << 100, 100;
+  }
 
   MatrixNd J_0, J_1;
   J_0 = MatrixNd::Zero(3,2);  J_0(0,0) = Lc0*c1; J_0(1,0) = Lc0*s1;
@@ -500,15 +556,7 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_CTC_Torque_()
 
   I_Matrix_tmp << I0+I1, I1, I1, I1;
   I_Matrix = M0*J_0.transpose()*J_0 + M1*J_1.transpose()*J_1 + I_Matrix_tmp;
-
-  // I_Matrix(0,0) = M0*sqrt(Lc0) + M1*(sqrt(L0) + sqrt(Lc1) + 2*L0*Lc1*cos(th[1])) + I0 + I1;
-  // I_Matrix(0,1) = M1*(sqrt(Lc1) + L0*Lc1*cos(th[1])) + I1;
-  // I_Matrix(1,0) = M1*(sqrt(Lc1) + L0*Lc1*cos(th[1])) + I1;
-  // I_Matrix(1,1) = M1*sqrt(Lc1) + I1;
-
-  // NE_Tau(0) = -2*M1*L0*Lc1*QDot_(0)*QDot_(1)*sin(th[1]) - M1*L0*Lc1*sqrt(QDot_(1))*sin(th[1]) - M0*g*Lc0*sin(th[0]) - M1*g*Lc0*sin(th[0]) - M1*g*Lc1*sin(th[0]+th[1]);
-  // NE_Tau(1) = M1*L0*Lc1*sqrt(QDot_(0))*sin(th[1]) - M1*g*Lc1*sin(th[0]+th[1]);
-  
+ 
   NE_Tau(0) = 2*M1*L0*Lc1*QDot_(0)*QDot_(1)*sin(th[1]) + M1*L0*Lc1*QDot_(1)*QDot_(1)*sin(th[1]) - M0*g*Lc0*sin(th[0]) - M1*g*L0*sin(th[0]) - M1*g*Lc1*sin(th[0]+th[1]);
   NE_Tau(1) = M1*L0*Lc1*QDot_(0)*QDot_(0)*sin(th[1]) - M1*g*Lc1*sin(th[0]+th[1]);
 
@@ -544,7 +592,7 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_Feedback_Pos()
   {
     for(int j = 0 ; j< 2; j++)
     {
-      Jacobian_dot(i,j) = (Jacobian(i,j) - prev_Jacobian(i,j)) / dt;
+      Jacobian_dot(i,j) = (Jacobian(i,j) - prev_Jacobian(i,j)) / inner_dt;
       prev_Jacobian(i,j) = Jacobian(i,j);
     }
     QDot_tmp(i) = QDot(i);
@@ -563,8 +611,8 @@ void gazebo::PLANAR_ROBOT_plugin::Calc_CTC_Torque()
 
   if(start_flag == 0)
   {
-    Kp << 5000, 5000;
-    Kv << 50, 50;
+    Kp << 1000, 1000;
+    Kv << 10, 10;
   }
 
   VectorNd X_CTC;
@@ -640,7 +688,7 @@ void gazebo::PLANAR_ROBOT_plugin::Init_Pos_Traj()
   Kd_q << 5, 5;
 
   step_time = 2; //주기설정 (초) 변수
-  cnt_time = cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+  cnt_time = cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
   cnt++;
   
   double periodic_function_sin = sin(2*PI/step_time*cnt_time);
@@ -649,13 +697,13 @@ void gazebo::PLANAR_ROBOT_plugin::Init_Pos_Traj()
 
   if(cnt_time <= step_time)
   {
-    Theo_th[0] = 30*deg2rad;
-    Theo_th[1] = -60*deg2rad;
+    Theo_th[0] = 30*Init_trajectory*deg2rad;
+    Theo_th[1] = -60*Init_trajectory*deg2rad;
   }
   
   for (int i = 0; i < 2; i++)
   {
-    actual_joint_vel[i] = (actual_joint_pos[i] - pre_actual_joint_pos[i]) / dt;
+    actual_joint_vel[i] = (actual_joint_pos[i] - pre_actual_joint_pos[i]) / inner_dt;
     pre_actual_joint_pos[i] = actual_joint_pos[i];
   }
 
@@ -663,13 +711,14 @@ void gazebo::PLANAR_ROBOT_plugin::Init_Pos_Traj()
   for (int i = 0; i < 2; i++)
   {
     joint[i].torque = Kp_q[i]*(Theo_th[i] - actual_joint_pos[i]) + Kd_q[i] * (0 - actual_joint_vel[i]); // 기본 PV제어 코드
+    old_joint[i].torque = joint[i].torque;
   }
 
   Q(0) = actual_joint_pos[0];
   Q(1) = actual_joint_pos[1];
 
-  QDot = (Q - prevQ) / dt;
-  QDDot = (QDot - prevQDot) / dt;
+  QDot = (Q - prevQ) / inner_dt;
+  QDDot = (QDot - prevQDot) / inner_dt;
 
   prevQ = Q;
   prevQDot = QDot;
@@ -678,14 +727,14 @@ void gazebo::PLANAR_ROBOT_plugin::Init_Pos_Traj()
 void gazebo::PLANAR_ROBOT_plugin::Gravity_Cont()
 {
   step_time = 1; //주기설정 (초) 변수
-  cnt_time = cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+  cnt_time = cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
   cnt++;
 
   Q(0) = actual_joint_pos[0];
   Q(1) = actual_joint_pos[1];
 
-  QDot = (Q - prevQ) / dt;
-  QDDot = (QDot - prevQDot) / dt;
+  QDot = (Q - prevQ) / inner_dt;
+  QDDot = (QDot - prevQDot) / inner_dt;
 
   prevQ = Q;
   prevQDot = QDot;
@@ -695,13 +744,14 @@ void gazebo::PLANAR_ROBOT_plugin::Gravity_Cont()
   for (int i = 0; i < 2; i++)
   {
     joint[i].torque = Tau(i);
+    old_joint[i].torque = joint[i].torque;
   }
 }
 
 void gazebo::PLANAR_ROBOT_plugin::CTC_Control()
 {
   step_time = 1; //주기설정 (초) 변수
-  cnt_time = cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+  cnt_time = cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
   cnt++;
   
   double old_trajectory = 0.5*(cos(PI*(cnt_time/step_time)));
@@ -710,8 +760,8 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control()
   Q(0) = actual_joint_pos[0];
   Q(1) = actual_joint_pos[1];
 
-  QDot = (Q - prevQ) / dt;
-  QDDot = (QDot - prevQDot) / dt;
+  QDot = (Q - prevQ) / inner_dt;
+  QDDot = (QDot - prevQDot) / inner_dt;
 
   prevQ = Q;
   prevQDot = QDot;
@@ -747,7 +797,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control()
 void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Pos()
 {
   step_time = 1; //주기설정 (초) 변수
-  cnt_time = cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+  cnt_time = cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
   cnt++;
   
   double old_trajectory = 0.5*(cos(PI*(cnt_time/step_time)));
@@ -756,8 +806,8 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Pos()
   Q(0) = actual_joint_pos[0];
   Q(1) = actual_joint_pos[1];
 
-  QDot = (Q - prevQ) / dt;
-  QDDot = (QDot - prevQDot) / dt;
+  QDot = (Q - prevQ) / inner_dt;
+  QDDot = (QDot - prevQDot) / inner_dt;
 
   prevQ = Q;
   prevQDot = QDot;
@@ -774,7 +824,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Pos()
   else if(start_flag == 1)
   {
     chg_step_time = 2;
-    chg_cnt_time = chg_cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+    chg_cnt_time = chg_cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
     chg_cnt++;
     double change_trajectory = 0.5*(1-cos(PI*(chg_cnt_time/chg_step_time)));
     if(chg_cnt_time <= chg_step_time)
@@ -792,8 +842,8 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Pos()
     }
   }
 
-  Calc_Feedback_Pos();  // calculate the feedback
-  Calc_CTC_Torque();    // calculate the CTC torque
+  Calc_Feedback_Pos_();  // calculate the feedback
+  Calc_CTC_Torque_();    // calculate the CTC torque
 
   if(cnt_time <= step_time)
   {
@@ -815,7 +865,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Pos()
 void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
 {
   step_time = 1; //주기설정 (초) 변수
-  cnt_time = cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+  cnt_time = cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
   cnt++;
   
   double old_trajectory = 0.5*(cos(PI*(cnt_time/step_time)));
@@ -824,8 +874,8 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
   Q(0) = actual_joint_pos[0];
   Q(1) = actual_joint_pos[1];
 
-  QDot = (Q - prevQ) / dt;
-  QDDot = (QDot - prevQDot) / dt;
+  QDot = (Q - prevQ) / inner_dt;
+  QDDot = (QDot - prevQDot) / inner_dt;
 
   prevQ = Q;
   prevQDot = QDot;
@@ -842,7 +892,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
   else if(start_flag == 1)
   {
     chg_step_time = 2;
-    chg_cnt_time = chg_cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+    chg_cnt_time = chg_cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
     chg_cnt++;
     double change_trajectory = 0.5*(1-cos(PI*(chg_cnt_time/chg_step_time)));
     
@@ -867,7 +917,7 @@ void gazebo::PLANAR_ROBOT_plugin::CTC_Control_Cont_Pos()
   else if(start_flag == 2)
   {
     chg_step_time = 2;
-    chg_cnt_time = chg_cnt*dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
+    chg_cnt_time = chg_cnt*inner_dt; // 한스텝의 시간 설정 dt = 0.001초 고정값
     chg_cnt++;
     double change_trajectory = 0.5*(1-cos(PI*(chg_cnt_time/chg_step_time)));
     
@@ -918,6 +968,8 @@ void gazebo::PLANAR_ROBOT_plugin::Print() // 한 싸이클 돌때마다 데이�
     fprintf(tmpdata1, "%f,%f\n", Foot_Pos(0),Foot_Pos(1));
     fprintf(tmpdata2, "%f,%f\n", torque_CTC(0),torque_CTC(1));
     fprintf(tmpdata3, "%f,%f\n", joint[0].torque, joint[1].torque);
+    fprintf(tmpdata4, "%f,%f\n", out_joint[0].torque, out_joint[1].torque);
+    
   }
 }
 

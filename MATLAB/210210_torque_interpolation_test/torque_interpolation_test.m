@@ -1,0 +1,44 @@
+clc; clear; close all;
+
+Des_X = readmatrix('tmpdata0.txt');
+Foot_Pos = readmatrix('tmpdata1.txt');
+torque_CTC = readmatrix('tmpdata2.txt');
+joint_torque = readmatrix('tmpdata3.txt');
+out_joint_torque = readmatrix('tmpdata4.txt');
+
+Des_X = Des_X(1:18000,:);
+Foot_Pos = Foot_Pos(1:18000,:);
+torque_CTC = torque_CTC(1:18000,:);
+joint_torque = joint_torque(1:18000,:);
+out_joint_torque = out_joint_torque(1:18000,:);
+
+
+dt = 0.001;
+time = 1:18000;
+time = time * dt;
+
+fig = figure;
+hold on;
+grid on;
+box on;
+fig.Color = 'White';
+set(gca,'FontSize',14)
+title('Position','FontSize',16)
+xlabel('Time [sec]','FontSize',14)
+ylabel('Linear Position [m] / Angular Position [rad]','FontSize',14)
+plot(time, Des_X, 'Linewidth', 2)
+plot(time, Foot_Pos, 'Linewidth', 2)
+legend("Desired y","Desired z","Actual y","Actual z")
+
+fig = figure;
+hold on;
+grid on;
+box on;
+fig.Color = 'White';
+set(gca,'FontSize',14)
+title('Position','FontSize',16)
+xlabel('Time [sec]','FontSize',14)
+ylabel('Linear Position [m] / Angular Position [rad]','FontSize',14)
+plot(time, joint_torque, 'Linewidth', 2)
+plot(time, out_joint_torque, 'Linewidth', 2)
+legend("calc torque - 1st joint","calc torque - 2nd joint","out torque - 1st joint","out torque - 2nd joint")
